@@ -167,25 +167,23 @@ def inv_mix_columns(state):
 '''
 
 Encryption function for n rounds:
-- text_to_state (converts plaintexts/ciphertexts into an AES state)
 
+- text_to_state (converts plaintexts/ciphertexts into an AES state)
+- printState (print the state for debugging)
 '''
 
-def text_to_state(text) -> list:
+def text_to_state(text):
     
-    # Ensure the input is bytes
     if isinstance(text, str):
         text_bytes = text.encode('utf-8')
     else:
         text_bytes = text
 
-    # Padding or truncating
     if len(text_bytes) < 16:
         text_bytes += b' ' * (16 - len(text_bytes))
     elif len(text_bytes) > 16:
         text_bytes = text_bytes[:16]
 
-    # Fill state in column-major order
     state = [[0] * 4 for _ in range(4)]
     for i in range(16):
         row = i % 4
@@ -194,12 +192,12 @@ def text_to_state(text) -> list:
 
     return state
 
-def printState(state: list):
+def printState(state):
     for row in state:
         print(" ".join(f"{byte:02x}" for byte in row))
 
 
-def encrypt(plaintext, key, num_rounds, verbose = True) -> list:
+def encrypt(plaintext, key, num_rounds, verbose = True):
     
     
     state = text_to_state(plaintext)
@@ -259,6 +257,83 @@ def encrypt(plaintext, key, num_rounds, verbose = True) -> list:
     
     return state
 
+
+'''
+Decryption function for n rounds:
+
+- state_to_text (debugging function)
+
+'''
+def state_to_text(state):
+    text_bytes = [state[row][col] for col in range(4) for row in range(4)]
+    text = ''.join(chr(byte) for byte in text_bytes)
+    
+    return text
+
+def decrypt(ciphertext, key, num_rounds, verbose=True):
+    
+    
+    state = (ciphertext)
+    if verbose:
+        print("Initial State (ciphertext):")
+        printState(state)
+    
+    
+    round_keys = KeyExpansion(key, num_rounds)
+    
+    
+    state = add_round_key(state, round_keys[-1])
+    if verbose:
+        print("\nAfter Initial AddRoundKey:")
+        printState(state)
+    
+    state = inv_shift_rows(state)
+    if verbose:
+        print(f"\nAfter Initial Inverse ShiftRows:")
+        printState(state)
+    
+    state = inv_sub_bytes(state)
+    if verbose:
+        print(f"\nAfter Initial Inverse SubBytes:")
+        printState(state)
+    
+    
+    for round_num in range(num_rounds - 1 , 0, -1):
+        
+        # AddRoundKey
+        state = add_round_key(state, round_keys[round_num])
+        if verbose:
+            print(f"\nAfter AddRoundKey (Round {round_num}):")
+            printState(state)
+        
+        # Inverse MixColumns (not in the last round)
+        state = inv_mix_columns(state)
+        if verbose:
+            print(f"\nAfter Inverse MixColumns (Round {round_num}):")
+            printState(state)
+    
+        
+        # Inverse ShiftRows
+        state = inv_shift_rows(state)
+        if verbose:
+            print(f"\nAfter Inverse ShiftRows (Round {round_num}):")
+            printState(state)
+        
+        # Inverse SubBytes
+        state = inv_sub_bytes(state)
+        if verbose:
+            print(f"\nAfter Inverse SubBytes (Round {round_num}):")
+            printState(state)
+        
+    # Final AddRoundKey with the first round key
+    state = add_round_key(state, round_keys[0])
+    if verbose:
+        print("\nAfter Final AddRoundKey (Round 0):")
+        printState(state)
+    
+    return state
+
+
 '''
 
 Testing
@@ -268,9 +343,22 @@ Testing
 key = b'\x2b\x7e\x15\x16\x28\xae\xd2\xa6\xab\xf7\x88\x09\xcf\x4f\x3c\x03'
 
 
-cipher_state = encrypt("yourplaintext16c", key, num_rounds=3, verbose=True)  # Print states
+cipher_state = encrypt("yourplaintext16c", key, num_rounds=5, verbose=True)  # Print states
 #cipher_state = encrypt("yourplaintext16c", key, num_rounds=3, verbose=False)  # Do not print states
 
-cipher_text = ''.join(chr(byte) for row in cipher_state for byte in row)
-print(cipher_text)
+#cipher_text = ''.join(chr(byte) for row in cipher_state for byte in row)
+
+#print(f"this is the cipher text: {cipher_text}")
+#print(f"this is the cipher state: {printState((cipher_state))}\n")
+
+print("starting decryption\n")
+
+decrypted_state = decrypt(cipher_state, key, num_rounds=5, verbose=True)
+
+decrypted_text = state_to_text(decrypted_state)
+
+print("\nDecrypted text:")
+print(decrypted_text)
+
+
 
