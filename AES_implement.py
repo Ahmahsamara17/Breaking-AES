@@ -1,4 +1,5 @@
 from Tables import *
+import time
 
 '''
 
@@ -41,19 +42,18 @@ def KeyExpansion(key, num_rounds):
     #     print(f"Column {idx}: {col}")
 
     while len(key_columns) < (num_rounds + 1) * 4:
-        word = (key_columns[-1]).copy()
+        word = list(key_columns[-1])
         
         if len(key_columns) % iteration_size == 0:
             word.append(word.pop(0))
             word = [S_box[b] for b in word]
-            rcon_value = rcon_lookup(i)
-            word[0] ^= rcon_value
+            word[0] ^= rcon[i]
             i += 1
         elif len(key) == 32 and len(key_columns) % iteration_size == 4:
             word = [S_box[b] for b in word]
 
-        word = xor_bytes(bytes(word), bytes(key_columns[-iteration_size]))
-        key_columns.append(list(word))
+        word = xor_bytes((word), (key_columns[-iteration_size]))
+        key_columns.append((word))
 
     round_keys = [key_columns[4 * i: 4 * (i + 1)] for i in range(len(key_columns) // 4)]
     
@@ -71,13 +71,13 @@ def KeyExpansion(key, num_rounds):
 '''
 
 inverse Key Expansion function: 
-
+- xor
 '''
-def xor(s1, s2):
-    s = b""
-    for x,y in zip(s1, s2):
-        s += bytes([y ^ x])
-    return s
+def xor(state1, state2):
+    state = b""
+    for x,y in zip(state1, state2):
+        state += bytes([y ^ x])
+    return state
 
 def inv_key_expansion(key, current_round):
 
@@ -120,7 +120,6 @@ Normal Round Operations + inverses
 '''
 def add_round_key(state, round_key):
     
-
     if len(state) == 16:
         state = [state[i:i + 4] for i in range(0, len(state), 4)]
     
@@ -151,50 +150,58 @@ def inv_sub_bytes(state):
     
     return state
 
-def shift_rows(s):
-    s[0][1], s[1][1], s[2][1], s[3][1] = s[1][1], s[2][1], s[3][1], s[0][1]
-    s[0][2], s[1][2], s[2][2], s[3][2] = s[2][2], s[3][2], s[0][2], s[1][2]
-    s[0][3], s[1][3], s[2][3], s[3][3] = s[3][3], s[0][3], s[1][3], s[2][3] 
-    
-    return s
+def shift_rows(entry):
+    for col in range(1, 4):  
+        for _ in range(col):  
+            temp = entry[0][col]
+            for row in range(3):
+                entry[row][col] = entry[row + 1][col]
+            entry[3][col] = temp
+    return entry
 
-def inv_shift_rows(s):
-    s[0][1], s[1][1], s[2][1], s[3][1] = s[3][1], s[0][1], s[1][1], s[2][1]
-    s[0][2], s[1][2], s[2][2], s[3][2] = s[2][2], s[3][2], s[0][2], s[1][2]
-    s[0][3], s[1][3], s[2][3], s[3][3] = s[1][3], s[2][3], s[3][3], s[0][3]
-    return s
+def inv_shift_rows(entry):
+    for col in range(1, 4):  
+        for _ in range(col):  
+            temp = entry[3][col]
+            for row in range(3, 0, -1):
+                entry[row][col] = entry[row - 1][col]
+            entry[0][col] = temp
+    return entry
 
-xtime = lambda a: (((a << 1) ^ 0x1B) & 0xFF) if (a & 0x80) else (a << 1)
+def xtime(byte):
+    if byte & 0x80:  
+        return (((byte << 1) ^ 0x1B) & 0xFF)
+    else:
+        return (byte << 1) & 0xFF
 
-def mix_single_column(a):
-    # see Sec 4.1.2 in The Design of Rijndael
-    t = a[0] ^ a[1] ^ a[2] ^ a[3]
-    u = a[0]
-    a[0] ^= t ^ xtime(a[0] ^ a[1])
-    a[1] ^= t ^ xtime(a[1] ^ a[2])
-    a[2] ^= t ^ xtime(a[2] ^ a[3])
-    a[3] ^= t ^ xtime(a[3] ^ u)
+def mix_single_column(column):
+    combined_xor  = column[0] ^ column[1] ^ column[2] ^ column[3]
+    index = column[0]
+    column[0] ^= combined_xor  ^ xtime(column[0] ^ column[1])
+    column[1] ^= combined_xor  ^ xtime(column[1] ^ column[2])
+    column[2] ^= combined_xor  ^ xtime(column[2] ^ column[3])
+    column[3] ^= combined_xor  ^ xtime(column[3] ^ index)
     
-    return a
+    return column
     
     
-def mix_columns(state):
-    
+def mix_columns(state): 
     for i in range(4):
         mix_single_column(state[i])
 
     return state
 
-def inv_mix_columns(s):
+def inv_mix_columns(state):
     for i in range(4):
-        u = xtime(xtime(s[i][0] ^ s[i][2]))
-        v = xtime(xtime(s[i][1] ^ s[i][3]))
-        s[i][0] ^= u
-        s[i][1] ^= v
-        s[i][2] ^= u
-        s[i][3] ^= v
+        index = xtime(xtime(state[i][0] ^ state[i][2]))
+        rev_index = xtime(xtime(state[i][1] ^ state[i][3]))
+        state[i][0] ^= index
+        state[i][1] ^= rev_index
+        state[i][2] ^= index
+        state[i][3] ^= rev_index
 
-    mix_columns(s)
+    mix_columns(state)
+    return state
 
 '''
 
@@ -286,7 +293,7 @@ def encrypt(plaintext, key, num_rounds, verbose = False):
         print(f"\nAfter AddRoundKey (Round {num_rounds}):")
         printState(state)
     
-    return state
+    return bytes(sum(state, []))
 
 
 '''
@@ -305,6 +312,9 @@ def decrypt(ciphertext, key, num_rounds = 3, verbose=False):
     
     if isinstance(ciphertext, str):
         state = text_to_state(ciphertext)
+        
+    elif isinstance(ciphertext, bytes):
+        state = [list(ciphertext[i:i+4]) for i in range(0, len(ciphertext), 4)]
     else:
         state = (ciphertext)
         
@@ -314,13 +324,13 @@ def decrypt(ciphertext, key, num_rounds = 3, verbose=False):
     
     
     round_keys = KeyExpansion(key, num_rounds)
-    
-    
+
     state = add_round_key(state, round_keys[-1])
     if verbose:
         print("\nAfter Initial AddRoundKey:")
         printState(state)
     
+
     state = inv_shift_rows(state)
     if verbose:
         print(f"\nAfter Initial Inverse ShiftRows:")
@@ -347,7 +357,9 @@ def decrypt(ciphertext, key, num_rounds = 3, verbose=False):
             printState(state)
     
         # Inverse ShiftRows
+        
         state = inv_shift_rows(state)
+        
         if verbose:
             print(f"\nAfter Inverse ShiftRows (Round {round_num}):")
             printState(state)
@@ -364,8 +376,7 @@ def decrypt(ciphertext, key, num_rounds = 3, verbose=False):
         print("\nAfter Final AddRoundKey (Round 0):")
         printState(state)
     
-    return state
-
+    return bytes(sum(state, []))
 
 '''
 
