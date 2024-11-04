@@ -71,7 +71,7 @@ def generate_sbox_ddt():
 
     return table
 
-
+S_box_ddt = generate_sbox_ddt()
 
 def generate_impossible_state(differential):
     impossible = []
@@ -99,9 +99,7 @@ Functions to handle ciphertext loading
 
 '''
 def generate_plaintext(n=5):
-    """
-    Generates n unique plaintexts with the same logic as the original function but without encryption.
-    """
+    
     while True:
         bs = []
         for i in range(n):
@@ -156,9 +154,8 @@ def generate_and_save_plaintext_files(n=5, directory="plain_texts"):
 def load_ciphertext_files(n=5, directory="Cipher_texts"):
     ciphertexts = []
 
-    # Loop through the files named "ciphertext1.bin" through "ciphertextN.bin"
     for i in range(1, n+1):
-        file_path = os.path.join(directory, f"ciphertext{i}.bin")
+        file_path = os.path.join(directory, f"{i}.bin.enc")
         
         # Open the file and read the contents
         with open(file_path, "rb") as f:
@@ -181,8 +178,6 @@ def load_plaintext_files(n=5, directory="plain_texts"):
 
     return plaintexts
 
-real_key = b'\x00'
-
 plaintexts = load_plaintext_files(n=5)
 print("Plaintexts loaded successfully!")
 
@@ -191,87 +186,85 @@ print("Ciphertexts loaded successfully!")
 
 test_pair = receive_and_package_ciphertexts(plaintexts, ciphertexts)
 
-shifted = [0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12, 1, 6, 11]
+def generate_possible_keys():
+    shifted = [0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12, 1, 6, 11]
+    impossible_key = [None] * 256
+    possible_roundkey = -1
 
-S_box_ddt = generate_sbox_ddt()
-
-impossible_key = [None] * 256
-possible_rk0 = -1
-
-for x in range(256):
-    print("[+] Testing Round Key = " + str(x))
-    impossible_key[x] = [None] * 16
-    
-    for plain1, plain2, cipher1, cipher2 in test_pair:
+    for x in range(256):
+        print(f"[+] Testing Round Key = {str(x)} [+]")
+        impossible_key[x] = [None] * 16
         
-        plain1_xor_plain2 = xor(plain1, plain2)
-        cipher_a = cipher1
-        cipher_b = cipher2
+        for plain1, plain2, cipher1, cipher2 in test_pair:
+            round0_key = bytes([x]) + b'\x00'*15
+            a = xor(plain1, round0_key)
+            b = xor(plain2, round0_key)
         
-        round0_key = bytes([x]) + b'\x00'*15
-        a = xor(plain1, round0_key)
-        b = xor(plain2, round0_key)
-      
-        a_imp = round1_to_round2(a)
-        b_imp = round1_to_round2(b)
-        
-        
-        
-        plain_diff = xor(a_imp, b_imp)
-        
-        impossible_state = generate_impossible_state(plain_diff)
-        # Brute-force last round key one byte at time by comparing against impossible_state
-        for i in range(16):
-            if impossible_key[x][i] is None:
-                impossible_key[x][i] = []
-
-            shifted_index = shifted[i]
+            a_imp = round1_to_round2(a)
+            b_imp = round1_to_round2(b)
             
-            for j in range(256):
-                if j in impossible_key[x][i]:
-                    continue
+            plain_diff = xor(a_imp, b_imp)
+            
+            impossible_state = generate_impossible_state(plain_diff)
+            for i in range(16):
+                if impossible_key[x][i] is None:
+                    impossible_key[x][i] = []
 
-                # Inverse ciphertext to start of round 3 (ciphertext -> AddRoundKey -> InvShiftRows -> InvSubBytes)
-                guess_key = b'\x00'*(i) + bytes([j]) + b'\x00'*(15-i)
-                inv_a = inv_last_round(cipher_a, guess_key)
+                shifted_index = shifted[i]
                 
-                
-                inv_b = inv_last_round(cipher_b, guess_key)
-                inv_diff = xor(inv_a, inv_b)
+                for j in range(256):
+                    if j in impossible_key[x][i]:
+                        continue
 
-                # Check if inv_diff contained in one of impossible_state
-                for imp in impossible_state:
-                    if inv_diff[shifted_index] == imp[shifted_index]:
-                        impossible_key[x][i].append(j)
-    n = []
-    for z in range(16):
-        n.append(len(impossible_key[x][z]))
-    
-    if 256 not in n:
-        print('[+] Found correct Rk0')
-        possible_rk0 = x
-        print(possible_rk0)
-        break    
+                    guess_key = b'\x00'*(i) + bytes([j]) + b'\x00'*(15-i)
+                    inv_a = inv_last_round(cipher1, guess_key)
+                    
+                    inv_b = inv_last_round(cipher2, guess_key)
+                    inv_diff = xor(inv_a, inv_b)
 
-list_256 = generate_256_list()
-
-possible_key = []
-for imp_key in impossible_key[possible_rk0]:
-    possible_key.append(list(set(list_256) - set(imp_key)))
-    
-all_possible_key = product(*possible_key)
-
-
-# Enumerate all remaining possible_key
-ciphertext_check = test_pair[0][2]
-for possible_round_key in all_possible_key:
-    print(1)
-    master_key = inv_key_expansion(list(possible_round_key), 3)
-    print(master_key)
-    
-    decrypt_check = decrypt(ciphertext_check, master_key)
-    if decrypt_check == test_pair[0][0]:
-        print('[+] Possible Master Key:', master_key)
-        print('[+] Actual Master Key  :', real_key) #KEY)
-        break
+                    for imp in impossible_state:
+                        if inv_diff[shifted_index] == imp[shifted_index]:
+                            impossible_key[x][i].append(j)
+        n = []
+        for z in range(16):
+            n.append(len(impossible_key[x][z]))
         
+        if 256 not in n:
+            print('[+] Found correct Round key [+]')
+            possible_roundkey = x
+            break
+    
+    return impossible_key, possible_roundkey
+
+
+def three_round_attack(impossible_key, possible_roundkey):
+    
+    list_256 = generate_256_list()
+    possible_key = []
+    for imp_key in impossible_key[possible_roundkey]:
+        possible_key.append(list(set(list_256) - set(imp_key)))
+        
+    all_possible_key = product(*possible_key)
+
+    ciphertext_plaintext_check = test_pair[0][2]
+
+    for possible_key in all_possible_key:
+        #print(1)
+        master_key = inv_key_expansion(list(possible_key), 3)
+        #print(master_key)
+        
+        check = decrypt(ciphertext_plaintext_check, master_key)
+        #print(check)
+        
+        if check == test_pair[0][0]:
+            print('Master Key:', master_key)
+            break
+    
+    return master_key
+        
+impossible_key, possible_roundkey = generate_possible_keys()
+
+real_key = three_round_attack(impossible_key, possible_roundkey)
+
+
+
