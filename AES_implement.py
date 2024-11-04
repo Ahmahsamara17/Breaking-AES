@@ -7,6 +7,7 @@ Key Expansion function:
 - sub_word (S_box substitution)
 - rcon (rcon lookup function)
 - xor bytes
+
 '''
 def xor_bytes(a, b):
     return bytes(i ^ j for i, j in zip(a, b))
@@ -26,10 +27,7 @@ def sub_word(word):
     return bytes(substituted_word)
 
 def rcon_lookup(i):
-    if 1 <= i < len(rcon):
-        return rcon[i]  # Return a single byte
-    else:
-        raise ValueError("Rcon value out of bounds for given input.")
+    return [rcon[i], 0x00, 0x00, 0x00]
 
 def KeyExpansion(key, num_rounds):
     
@@ -70,7 +68,40 @@ def KeyExpansion(key, num_rounds):
     return round_keys
 
 
+'''
 
+inverse Key Expansion function: 
+
+'''
+def xor(s1, s2):
+    s = b""
+    for x,y in zip(s1, s2):
+        s += bytes([y ^ x])
+    return s
+
+def inv_key_expansion(key, current_round):
+
+    key_schedule = []
+    key_schedule.append(key)
+
+    for r in range(current_round, 0, -1):
+      
+        target_key = key_schedule[0]
+        prev_key_round = [None] * 4
+
+        prev_key_round[3] = xor(target_key[12:], target_key[8:12])
+        prev_key_round[2] = xor(target_key[8:12], target_key[4:8])
+        prev_key_round[1] = xor(target_key[4:8], target_key[:4])
+
+        xored_rcon = xor(rcon_lookup(r), target_key[:4])
+
+        prev_key_round[0] = xor(sub_word(rot_word(prev_key_round[3])), xored_rcon)
+
+        prev_key_round = (prev_key_round[0] + prev_key_round[1] + prev_key_round[2] + prev_key_round[3])
+
+        key_schedule.insert(0, prev_key_round)
+
+    return key_schedule[0]
 '''
 
 AES Round Operations:
@@ -120,49 +151,50 @@ def inv_sub_bytes(state):
     
     return state
 
-def shift_rows(state):
-    state[1] = state[1][1:] + state[1][:1]  
-    state[2] = state[2][2:] + state[2][:2]  
-    state[3] = state[3][3:] + state[3][:3]  
+def shift_rows(s):
+    s[0][1], s[1][1], s[2][1], s[3][1] = s[1][1], s[2][1], s[3][1], s[0][1]
+    s[0][2], s[1][2], s[2][2], s[3][2] = s[2][2], s[3][2], s[0][2], s[1][2]
+    s[0][3], s[1][3], s[2][3], s[3][3] = s[3][3], s[0][3], s[1][3], s[2][3] 
     
-    return state
+    return s
 
-def inv_shift_rows(state):
-    state[1] = state[1][-1:] + state[1][:-1]
-    state[2] = state[2][-2:] + state[2][:-2]
-    state[3] = state[3][-3:] + state[3][:-3]
+def inv_shift_rows(s):
+    s[0][1], s[1][1], s[2][1], s[3][1] = s[3][1], s[0][1], s[1][1], s[2][1]
+    s[0][2], s[1][2], s[2][2], s[3][2] = s[2][2], s[3][2], s[0][2], s[1][2]
+    s[0][3], s[1][3], s[2][3], s[3][3] = s[1][3], s[2][3], s[3][3], s[0][3]
+    return s
+
+xtime = lambda a: (((a << 1) ^ 0x1B) & 0xFF) if (a & 0x80) else (a << 1)
+
+def mix_single_column(a):
+    # see Sec 4.1.2 in The Design of Rijndael
+    t = a[0] ^ a[1] ^ a[2] ^ a[3]
+    u = a[0]
+    a[0] ^= t ^ xtime(a[0] ^ a[1])
+    a[1] ^= t ^ xtime(a[1] ^ a[2])
+    a[2] ^= t ^ xtime(a[2] ^ a[3])
+    a[3] ^= t ^ xtime(a[3] ^ u)
     
-    return state
-
+    return a
+    
+    
 def mix_columns(state):
     
-    for col in range(4):
-        a0 = state[0][col]
-        a1 = state[1][col]
-        a2 = state[2][col]
-        a3 = state[3][col]
-
-        state[0][col] = multiplication_by_2[a0] ^ multiplication_by_3[a1] ^ a2 ^ a3
-        state[1][col] = a0 ^ multiplication_by_2[a1] ^ multiplication_by_3[a2] ^ a3
-        state[2][col] = a0 ^ a1 ^ multiplication_by_2[a2] ^ multiplication_by_3[a3]
-        state[3][col] = multiplication_by_3[a0] ^ a1 ^ a2 ^ multiplication_by_2[a3]
+    for i in range(4):
+        mix_single_column(state[i])
 
     return state
 
-def inv_mix_columns(state):
-   
-    for col in range(4):
-        a0 = state[0][col]
-        a1 = state[1][col]
-        a2 = state[2][col]
-        a3 = state[3][col]
+def inv_mix_columns(s):
+    for i in range(4):
+        u = xtime(xtime(s[i][0] ^ s[i][2]))
+        v = xtime(xtime(s[i][1] ^ s[i][3]))
+        s[i][0] ^= u
+        s[i][1] ^= v
+        s[i][2] ^= u
+        s[i][3] ^= v
 
-        state[0][col] = multiplication_by_14[a0] ^ multiplication_by_11[a1] ^ multiplication_by_13[a2] ^ multiplication_by_9[a3]
-        state[1][col] = multiplication_by_9[a0] ^ multiplication_by_14[a1] ^ multiplication_by_11[a2] ^ multiplication_by_13[a3]
-        state[2][col] = multiplication_by_13[a0] ^ multiplication_by_9[a1] ^ multiplication_by_14[a2] ^ multiplication_by_11[a3]
-        state[3][col] = multiplication_by_11[a0] ^ multiplication_by_13[a1] ^ multiplication_by_9[a2] ^ multiplication_by_14[a3]
-
-    return state
+    mix_columns(s)
 
 '''
 
@@ -197,8 +229,7 @@ def printState(state):
         print(" ".join(f"{byte:02x}" for byte in row))
 
 
-def encrypt(plaintext, key, num_rounds, verbose = True):
-    
+def encrypt(plaintext, key, num_rounds, verbose = False):
     
     state = text_to_state(plaintext)
     if verbose:
@@ -270,10 +301,13 @@ def state_to_text(state):
     
     return text
 
-def decrypt(ciphertext, key, num_rounds, verbose=True):
+def decrypt(ciphertext, key, num_rounds = 3, verbose=False):
     
-    
-    state = (ciphertext)
+    if isinstance(ciphertext, str):
+        state = text_to_state(ciphertext)
+    else:
+        state = (ciphertext)
+        
     if verbose:
         print("Initial State (ciphertext):")
         printState(state)
@@ -312,7 +346,6 @@ def decrypt(ciphertext, key, num_rounds, verbose=True):
             print(f"\nAfter Inverse MixColumns (Round {round_num}):")
             printState(state)
     
-        
         # Inverse ShiftRows
         state = inv_shift_rows(state)
         if verbose:
@@ -340,25 +373,25 @@ Testing
 
 '''
 
-key = b'\x2b\x7e\x15\x16\x28\xae\xd2\xa6\xab\xf7\x88\x09\xcf\x4f\x3c\x03'
+# key = b'\x2b\x7e\x15\x16\x28\xae\xd2\xa6\xab\xf7\x88\x09\xcf\x4f\x3c\x03'
 
 
-cipher_state = encrypt("yourplaintext16c", key, num_rounds=5, verbose=True)  # Print states
-#cipher_state = encrypt("yourplaintext16c", key, num_rounds=3, verbose=False)  # Do not print states
+# cipher_state = encrypt("yourplaintext16c", key, num_rounds=5, verbose=True)  # Print states
+# #cipher_state = encrypt("yourplaintext16c", key, num_rounds=3, verbose=False)  # Do not print states
 
-#cipher_text = ''.join(chr(byte) for row in cipher_state for byte in row)
+# #cipher_text = ''.join(chr(byte) for row in cipher_state for byte in row)
 
-#print(f"this is the cipher text: {cipher_text}")
-#print(f"this is the cipher state: {printState((cipher_state))}\n")
+# #print(f"this is the cipher text: {cipher_text}")
+# #print(f"this is the cipher state: {printState((cipher_state))}\n")
 
-print("starting decryption\n")
+# print("starting decryption\n")
 
-decrypted_state = decrypt(cipher_state, key, num_rounds=5, verbose=True)
+# decrypted_state = decrypt(cipher_state, key, num_rounds=5, verbose=True)
 
-decrypted_text = state_to_text(decrypted_state)
+# decrypted_text = state_to_text(decrypted_state)
 
-print("\nDecrypted text:")
-print(decrypted_text)
+# print("\nDecrypted text:")
+# print(decrypted_text)
 
 
 
